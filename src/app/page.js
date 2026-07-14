@@ -81,12 +81,14 @@ export default function Home() {
   if (!mounted) {
     return (
       <main className="container">
-        <div className="glass-panel" style={{ minHeight: "300px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-          <h1>Sora Downloader</h1>
-          <p className="subtitle" style={{ marginBottom: "2rem" }}>ดาวน์โหลดวิดีโอ YouTube หรืออัลบั้ม Spotify ในคุณภาพสูงสุดแบบไม่มีโฆษณา</p>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "var(--text-muted)" }}>
-            <Loader2 className="spinner" size={24} />
-            <span>กำลังเตรียมหน้าต่างดาวน์โหลด...</span>
+        <div className="glass-panel">
+          <div className="loading-placeholder">
+            <h1>Sora Downloader</h1>
+            <p className="subtitle">ดาวน์โหลดวิดีโอ YouTube หรืออัลบั้ม Spotify ในคุณภาพสูงสุดแบบไม่มีโฆษณา</p>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", color: "var(--text-muted)", marginTop: "1rem" }}>
+              <Loader2 className="spinner" size={24} />
+              <span>กำลังเตรียมหน้าต่างดาวน์โหลด...</span>
+            </div>
           </div>
         </div>
       </main>
