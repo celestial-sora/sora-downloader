@@ -57,7 +57,12 @@ export async function GET(request) {
       FFMPEG_PATH,
       "--save-file",
       "-",
-    ]);
+    ], {
+      env: {
+        ...process.env,
+        PYTHONIOENCODING: "utf-8",
+      }
+    });
 
     // Find the JSON block inside stdout (spotdl sometimes prints other status lines)
     const jsonStartIndex = stdout.indexOf("[");

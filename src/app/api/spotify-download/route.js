@@ -59,6 +59,7 @@ export async function GET(request) {
     const customEnv = {
       ...process.env,
       [pathEnvKey]: `${ffmpegDir}${path.delimiter}${existingPath}`,
+      PYTHONIOENCODING: "utf-8",
     };
 
     // Spawn spotdl to download as mp3 inside tempDir
