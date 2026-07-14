@@ -1,7 +1,20 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Search, Download, Video, Music, AlertCircle, Loader2, Disc, ListMusic } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { 
+  Search, 
+  Download, 
+  Video, 
+  Music, 
+  AlertCircle, 
+  Loader2, 
+  Disc, 
+  ListMusic, 
+  Check, 
+  ChevronDown, 
+  ChevronUp, 
+  FileText 
+} from "lucide-react";
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState("youtube");
@@ -11,16 +24,116 @@ export default function Home() {
   const [videoInfo, setVideoInfo] = useState(null);
   const [spotifyInfo, setSpotifyInfo] = useState(null);
   const [mounted, setMounted] = useState(false);
-  const [isDownloading, setIsDownloading] = useState(false);
+  const [queue, setQueue] = useState([]);
+  const [activeLogsTaskId, setActiveLogsTaskId] = useState(null);
+  
+  // Track notifications sound
+  const audioContextRef = useRef(null);
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
+  // Poll queue status
+  useEffect(() => {
+    if (!mounted) return;
+    
+    let interval;
+    const fetchQueue = async () => {
+      try {
+        const res = await fetch("/api/queue/list");
+        const data = await res.json();
+        if (res.ok) {
+          setQueue(prevQueue => {
+            // Check for newly completed items to trigger browser notification
+            data.items.forEach(item => {
+              const oldItem = prevQueue.find(q => q.id === item.id);
+              if (oldItem && oldItem.status !== "completed" && item.status === "completed") {
+                triggerDoneNotification(item);
+              }
+            });
+            return data.items;
+          });
+        }
+      } catch (err) {
+        console.error("Error polling queue:", err);
+      }
+    };
+
+    fetchQueue();
+    interval = setInterval(fetchQueue, 1500);
+
+    return () => clearInterval(interval);
+  }, [mounted]);
+
+  // Try to play notification sound
+  const playNotificationSound = () => {
+    try {
+      if (!audioContextRef.current) {
+        audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      const ctx = audioContextRef.current;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      
+      // Sweet 2-tone notification sound (Beep-Boop)
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
+      gain.gain.setValueAtTime(0.1, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.4);
+
+      setTimeout(() => {
+        const osc2 = ctx.createOscillator();
+        const gain2 = ctx.createGain();
+        osc2.connect(gain2);
+        gain2.connect(ctx.destination);
+        osc2.type = "sine";
+        osc2.frequency.setValueAtTime(880, ctx.currentTime); // A5
+        gain2.gain.setValueAtTime(0.15, ctx.currentTime);
+        gain2.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
+        osc2.start(ctx.currentTime);
+        osc2.stop(ctx.currentTime + 0.5);
+      }, 150);
+    } catch (e) {
+      console.warn("Could not play notification audio", e);
+    }
+  };
+
+  const triggerDoneNotification = (item) => {
+    playNotificationSound();
+    
+    // Attempt browser notification
+    if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
+      try {
+        new Notification("ดาวน์โหลดเสร็จแล้ว! 🎉", {
+          body: `ไฟล์ "${item.title}" พร้อมให้คลิกดาวน์โหลดแล้ว`,
+          icon: item.thumbnail
+        });
+        return;
+      } catch (e) {
+        // Fallback
+      }
+    }
+  };
+
+  // Ask for notification permissions on user interaction
+  const requestNotificationPermission = () => {
+    if (typeof window !== "undefined" && "Notification" in window) {
+      if (Notification.permission === "default") {
+        Notification.requestPermission();
+      }
+    }
+  };
+
   const handleSearch = async (e) => {
     e.preventDefault();
     if (!url) return;
 
+    requestNotificationPermission();
     setIsLoading(true);
     setError("");
     setVideoInfo(null);
@@ -53,31 +166,50 @@ export default function Home() {
     }
   };
 
+  const addToQueue = async (payload) => {
+    requestNotificationPermission();
+    setError("");
+    try {
+      const res = await fetch("/api/queue/add", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to add task to download queue");
+      }
+      setActiveLogsTaskId(data.taskId);
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   const handleDownload = (format) => {
     if (!videoInfo || !url) return;
     
-    setIsDownloading(true);
-    // Redirect to the download API route
-    const downloadUrl = `/api/download?url=${encodeURIComponent(url)}&format=${format}`;
-    window.location.href = downloadUrl;
-
-    setTimeout(() => {
-      setIsDownloading(false);
-    }, 5000);
+    addToQueue({
+      url,
+      type: "youtube",
+      format,
+      title: videoInfo.title,
+      thumbnail: videoInfo.thumbnail,
+      totalTracks: 1
+    });
   };
 
   const handleSpotifyDownload = () => {
     if (!spotifyInfo || !url) return;
 
-    setIsDownloading(true);
-    // Redirect to the spotify download API route
-    const downloadUrl = `/api/spotify-download?url=${encodeURIComponent(url)}&name=${encodeURIComponent(spotifyInfo.title)}`;
-    window.location.href = downloadUrl;
-
-    setTimeout(() => {
-      setIsDownloading(false);
-    }, 8000);
+    addToQueue({
+      url,
+      type: "spotify",
+      title: spotifyInfo.title,
+      thumbnail: spotifyInfo.thumbnail,
+      totalTracks: spotifyInfo.tracks ? spotifyInfo.tracks.length : 1
+    });
   };
+
   if (!mounted) {
     return (
       <main className="container">
@@ -142,8 +274,8 @@ export default function Home() {
               type="text"
               className="search-input"
               placeholder={
-                mounted && activeTab === "spotify"
-                  ? "วางลิงก์ Spotify ที่นี่... (เช่น https://open.spotify.com/album/... หรือ /track/...)"
+                activeTab === "spotify"
+                  ? "วางลิงก์ Spotify ที่นี่... (เช่น https://open.spotify.com/album/...)"
                   : "วางลิงก์ YouTube ที่นี่... (เช่น https://www.youtube.com/watch?v=...)"
               }
               value={url}
@@ -159,7 +291,7 @@ export default function Home() {
           <button 
             type="submit" 
             className="btn btn-primary"
-            disabled={!mounted || isLoading || !url}
+            disabled={isLoading || !url}
           >
             {isLoading ? (
               <>
@@ -203,7 +335,6 @@ export default function Home() {
               <button 
                 className="btn btn-video"
                 onClick={() => handleDownload('video')}
-                disabled={isDownloading}
               >
                 <Video size={20} />
                 ดาวน์โหลดวิดีโอ (MP4)
@@ -212,7 +343,6 @@ export default function Home() {
               <button 
                 className="btn btn-audio"
                 onClick={() => handleDownload('audio')}
-                disabled={isDownloading}
               >
                 <Music size={20} />
                 ดาวน์โหลดเสียง (MP3)
@@ -262,23 +392,115 @@ export default function Home() {
               <button 
                 className="btn btn-spotify-download"
                 onClick={handleSpotifyDownload}
-                disabled={isDownloading}
               >
-                {isDownloading ? (
-                  <>
-                    <Loader2 className="spinner" size={20} />
-                    กำลังเตรียมไฟล์ดาวน์โหลด (โปรดรอสักครู่)...
-                  </>
-                ) : (
-                  <>
-                    <Download size={20} />
-                    {spotifyInfo.type === "track" 
-                      ? "ดาวน์โหลดเพลง (MP3)" 
-                      : "ดาวน์โหลดอัลบั้ม / เพลย์ลิสต์ (ZIP)"
-                    }
-                  </>
-                )}
+                <Download size={20} />
+                {spotifyInfo.type === "track" 
+                  ? "เพิ่มลงคิวดาวน์โหลด (MP3)" 
+                  : "เพิ่มลงคิวดาวน์โหลดทั้งอัลบั้ม (ZIP)"
+                }
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* Active Download Queue Manager */}
+        {queue.length > 0 && (
+          <div className="queue-container">
+            <div className="queue-header">
+              <h2 className="queue-title">
+                <ListMusic size={22} />
+                คิวดาวน์โหลด
+              </h2>
+              <span className="queue-badge">{queue.length} รายการ</span>
+            </div>
+            
+            <div className="queue-list">
+              {queue.map((item) => (
+                <div key={item.id} className="queue-card">
+                  <div className="queue-card-main">
+                    <div className="queue-thumbnail">
+                      <img src={item.thumbnail || "/default-art.png"} alt={item.title} />
+                      <div className="queue-type-badge">
+                        {item.type === "spotify" ? (
+                          <Music size={12} style={{ color: "var(--sf-green)" }} />
+                        ) : (
+                          <Video size={12} style={{ color: "var(--yt-red)" }} />
+                        )}
+                      </div>
+                    </div>
+                    
+                    <div className="queue-info">
+                      <h3 className="queue-item-title" title={item.title}>
+                        {item.title}
+                      </h3>
+                      <div className="queue-item-meta">
+                        <span className={`queue-status-badge status-${item.status}`}>
+                          {item.status === "queued" && "รอดำเนินการ"}
+                          {item.status === "downloading" && "กำลังดาวน์โหลด"}
+                          {item.status === "zipping" && "กำลังบีบอัดไฟล์"}
+                          {item.status === "completed" && "ดาวน์โหลดสำเร็จ"}
+                          {item.status === "failed" && "ล้มเหลว"}
+                        </span>
+                        <span>•</span>
+                        <span>{item.type === "spotify" ? "Spotify MP3" : item.format === "audio" ? "YouTube MP3" : "YouTube MP4"}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Progress Bar */}
+                  {item.status !== "completed" && item.status !== "failed" && (
+                    <div className="queue-progress-container">
+                      <div className="queue-progress-bar-bg">
+                        <div 
+                          className="queue-progress-bar-fill" 
+                          style={{ width: `${item.progress}%` }} 
+                        />
+                      </div>
+                      <span className="queue-progress-percent">{item.progress}%</span>
+                    </div>
+                  )}
+
+                  {/* Action Buttons: Download Completed & Show Logs */}
+                  <div className="queue-actions-row">
+                    <button 
+                      type="button"
+                      className="btn btn-queue-small btn-queue-logs"
+                      onClick={() => setActiveLogsTaskId(activeLogsTaskId === item.id ? null : item.id)}
+                    >
+                      {activeLogsTaskId === item.id ? (
+                        <>
+                          ซ่อน Logs <ChevronUp size={14} />
+                        </>
+                      ) : (
+                        <>
+                          แสดง Logs <ChevronDown size={14} />
+                        </>
+                      )}
+                    </button>
+
+                    {item.status === "completed" && (
+                      <a 
+                        href={`/api/queue/download?id=${item.id}`}
+                        className="btn btn-queue-small btn-queue-download"
+                      >
+                        <Check size={14} /> ดาวน์โหลดไฟล์
+                      </a>
+                    )}
+                  </div>
+
+                  {/* Collapsible terminal log output box */}
+                  {activeLogsTaskId === item.id && (
+                    <div className="queue-logs-panel">
+                      <pre>
+                        {item.logs && item.logs.length > 0 
+                          ? item.logs.join("\n") 
+                          : "รอข้อความระบบ..."
+                        }
+                      </pre>
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
           </div>
         )}
