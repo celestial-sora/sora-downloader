@@ -70,6 +70,14 @@ export async function GET(request) {
       "--format", "mp3",
     ];
 
+    if (process.env.SPOTIFY_CLIENT_ID && process.env.SPOTIFY_CLIENT_SECRET) {
+      args.push(
+        "--client-id", process.env.SPOTIFY_CLIENT_ID,
+        "--client-secret", process.env.SPOTIFY_CLIENT_SECRET,
+        "--use-official-api"
+      );
+    }
+
     console.log(`[Spotify Download API] Spawning spotdl with args: ${args.join(" ")}`);
     const spotdlProcess = spawn(SPOTDL_PATH, args, { env: customEnv, cwd: tempDir });
 

@@ -1,17 +1,37 @@
 import { execFile } from "child_process";
 import { promisify } from "util";
 import path from "path";
+import fs from "fs";
+import os from "os";
 
 const execFileAsync = promisify(execFile);
 
-// Path to yt-dlp binary bundled with youtube-dl-exec
-const YTDLP_PATH = path.join(
-  process.cwd(),
-  "node_modules",
-  "youtube-dl-exec",
-  "bin",
-  process.platform === "win32" ? "yt-dlp.exe" : "yt-dlp"
-);
+function getYtdlpPath() {
+  if (process.platform === "win32") {
+    const pythonYtdlp = path.join(
+      os.homedir(),
+      "AppData",
+      "Local",
+      "Programs",
+      "Python",
+      "Python311",
+      "Scripts",
+      "yt-dlp.exe"
+    );
+    if (fs.existsSync(pythonYtdlp)) {
+      return pythonYtdlp;
+    }
+  }
+  return path.join(
+    process.cwd(),
+    "node_modules",
+    "youtube-dl-exec",
+    "bin",
+    process.platform === "win32" ? "yt-dlp.exe" : "yt-dlp"
+  );
+}
+
+const YTDLP_PATH = getYtdlpPath();
 
 export async function GET(request) {
   try {
@@ -23,6 +43,44 @@ export async function GET(request) {
         { error: "กรุณาใส่ลิงก์ YouTube ที่ถูกต้อง" },
         { status: 400 }
       );
+    }
+
+    const isPlaylist = url.includes("list=") && !url.includes("watch?v=");
+
+    if (isPlaylist) {
+      console.log(`[YouTube Info API] Fetching playlist info for URL: ${url}`);
+      try {
+        const { stdout } = await execFileAsync(YTDLP_PATH, [
+          "--dump-single-json",
+          "--flat-playlist",
+          "--no-warnings",
+          url,
+        ]);
+        const info = JSON.parse(stdout);
+        const thumbnail =
+          info.thumbnails && info.thumbnails.length > 0
+            ? info.thumbnails[info.thumbnails.length - 1].url
+            : "/default-art.png";
+        
+        return Response.json({
+          title: info.title || "YouTube Playlist",
+          thumbnail,
+          channel: info.uploader || info.channel || "YouTube",
+          tracksCount: info.entries ? info.entries.length : 0,
+          type: "youtube_playlist",
+          url,
+        });
+      } catch (err) {
+        console.warn("[YouTube Info API] Flat-playlist extraction failed, using fallback:", err.message);
+        return Response.json({
+          title: "YouTube Playlist",
+          thumbnail: "/default-art.png",
+          channel: "YouTube",
+          tracksCount: 10,
+          type: "youtube_playlist",
+          url,
+        });
+      }
     }
 
     // Call yt-dlp --dump-json to get video metadata (no download)
@@ -53,6 +111,7 @@ export async function GET(request) {
       thumbnail,
       channel: info.uploader || info.channel || "Unknown",
       duration: formattedDuration,
+      type: "video",
       url,
     });
   } catch (error) {

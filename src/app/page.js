@@ -26,6 +26,9 @@ export default function Home() {
   const [mounted, setMounted] = useState(false);
   const [queue, setQueue] = useState([]);
   const [activeLogsTaskId, setActiveLogsTaskId] = useState(null);
+  const [audioFormat, setAudioFormat] = useState("flac");
+  const [embedLyrics, setEmbedLyrics] = useState(true);
+  const [lyricProvider, setLyricProvider] = useState("auto");
   
   // Track notifications sound
   const audioContextRef = useRef(null);
@@ -185,6 +188,24 @@ export default function Home() {
     }
   };
 
+  const handleClearQueue = async () => {
+    setError("");
+    try {
+      const res = await fetch("/api/queue/clear", { method: "POST" });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Failed to clear queue");
+      }
+      const listRes = await fetch("/api/queue/list");
+      const listData = await listRes.json();
+      if (listRes.ok) {
+        setQueue(listData.items);
+      }
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   const handleDownload = (format) => {
     if (!videoInfo || !url) return;
     
@@ -192,6 +213,9 @@ export default function Home() {
       url,
       type: "youtube",
       format,
+      audioFormat,
+      embedLyrics,
+      lyricProvider,
       title: videoInfo.title,
       thumbnail: videoInfo.thumbnail,
       totalTracks: 1
@@ -204,6 +228,10 @@ export default function Home() {
     addToQueue({
       url,
       type: "spotify",
+      format: "audio",
+      audioFormat,
+      embedLyrics,
+      lyricProvider,
       title: spotifyInfo.title,
       thumbnail: spotifyInfo.thumbnail,
       totalTracks: spotifyInfo.tracks ? spotifyInfo.tracks.length : 1
@@ -307,6 +335,89 @@ export default function Home() {
           </button>
         </form>
 
+        {/* Download Options Panel */}
+        <div className="download-preferences">
+          <div className="preference-group">
+            <span className="preference-label">คุณภาพ/ฟอร์แมตเสียง:</span>
+            <div className="pref-options">
+              <label className={`pref-option ${audioFormat === "flac" ? "active" : ""}`}>
+                <input
+                  type="radio"
+                  name="audioFormat"
+                  value="flac"
+                  checked={audioFormat === "flac"}
+                  onChange={() => setAudioFormat("flac")}
+                />
+                FLAC
+              </label>
+              <label className={`pref-option ${audioFormat === "m4a" ? "active" : ""}`}>
+                <input
+                  type="radio"
+                  name="audioFormat"
+                  value="m4a"
+                  checked={audioFormat === "m4a"}
+                  onChange={() => setAudioFormat("m4a")}
+                />
+                M4A
+              </label>
+              <label className={`pref-option ${audioFormat === "mp3" ? "active" : ""}`}>
+                <input
+                  type="radio"
+                  name="audioFormat"
+                  value="mp3"
+                  checked={audioFormat === "mp3"}
+                  onChange={() => setAudioFormat("mp3")}
+                />
+                MP3
+              </label>
+            </div>
+          </div>
+          
+          <div className="preference-group">
+            <span className="preference-label">เนื้อเพลง (Lyrics):</span>
+            <label className="switch-wrapper">
+              <input
+                type="checkbox"
+                checked={embedLyrics}
+                disabled={activeTab === "youtube"}
+                onChange={(e) => setEmbedLyrics(e.target.checked)}
+              />
+              <span className="switch-slider"></span>
+              <span className="switch-text">
+                {activeTab === "youtube" 
+                  ? "ไม่รองรับเนื้อเพลงสำหรับ YouTube" 
+                  : embedLyrics 
+                  ? "ฝังเนื้อเพลงลงในไฟล์" 
+                  : "ไม่ฝังเนื้อเพลง"
+                }
+              </span>
+            </label>
+          </div>
+
+          {activeTab === "spotify" && embedLyrics && (
+            <div className="preference-group" style={{ borderTop: "1px dashed var(--glass-border)", paddingTop: "0.75rem", marginTop: "0.25rem" }}>
+              <span className="preference-label">ผู้ให้บริการเนื้อเพลง (Lyric Provider):</span>
+              <select
+                className="pref-select"
+                value={lyricProvider}
+                onChange={(e) => setLyricProvider(e.target.value)}
+              >
+                <option value="auto">Auto (คัดสรรอัตโนมัติ)</option>
+                <option value="betterlyrics">BetterLyrics</option>
+                <option value="lrclib">LrcLib</option>
+                <option value="kugou">KuGou</option>
+                <option value="simpmusic">SimpMusic</option>
+                <option value="unison">Unison</option>
+                <option value="paxsenix_apple">Paxsenix: Apple Music</option>
+                <option value="paxsenix_netease">Paxsenix: NetEase</option>
+                <option value="paxsenix_spotify">Paxsenix: Spotify</option>
+                <option value="paxsenix_musixmatch">Paxsenix: Musixmatch</option>
+                <option value="paxsenix_youtube">Paxsenix: YouTube</option>
+              </select>
+            </div>
+          )}
+        </div>
+
         {error && (
           <div className="error-message">
             <AlertCircle size={20} />
@@ -314,8 +425,8 @@ export default function Home() {
           </div>
         )}
 
-        {/* YouTube Result Card */}
-        {activeTab === "youtube" && videoInfo && !isLoading && (
+        {/* YouTube Video Result Card */}
+        {activeTab === "youtube" && videoInfo && videoInfo.type !== "youtube_playlist" && !isLoading && (
           <div className="result-card">
             <div className="video-thumbnail">
               <img src={videoInfo.thumbnail} alt={videoInfo.title} />
@@ -345,7 +456,48 @@ export default function Home() {
                 onClick={() => handleDownload('audio')}
               >
                 <Music size={20} />
-                ดาวน์โหลดเสียง (MP3)
+                ดาวน์โหลดเสียง (FLAC / MP3)
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* YouTube Playlist Result Card */}
+        {activeTab === "youtube" && videoInfo && videoInfo.type === "youtube_playlist" && !isLoading && (
+          <div className="result-card spotify-card">
+            <div className="spotify-meta">
+              <div className="spotify-album-art">
+                <img src={videoInfo.thumbnail} alt={videoInfo.title} />
+              </div>
+              <div className="spotify-info-text">
+                <h2 className="spotify-title">{videoInfo.title}</h2>
+                <div className="spotify-artist">
+                  <span>👤 {videoInfo.channel}</span>
+                </div>
+                <div className="spotify-tracks-count">
+                  <span>🎵 {videoInfo.tracksCount} วิดีโอ (เพลย์ลิสต์ YouTube)</span>
+                </div>
+              </div>
+            </div>
+            
+            <div className="spotify-download-section">
+              <button 
+                className="btn btn-audio"
+                onClick={() => addToQueue({
+                  url,
+                  type: "youtube_playlist",
+                  format: "audio",
+                  audioFormat,
+                  embedLyrics,
+                  lyricProvider,
+                  title: videoInfo.title,
+                  thumbnail: videoInfo.thumbnail,
+                  totalTracks: videoInfo.tracksCount || 10
+                })}
+                style={{ width: "100%", justifyContent: "center" }}
+              >
+                <Music size={20} />
+                ดาวน์โหลดทั้งเพลย์ลิสต์ ({audioFormat.toUpperCase()} ZIP)
               </button>
             </div>
           </div>
@@ -395,8 +547,8 @@ export default function Home() {
               >
                 <Download size={20} />
                 {spotifyInfo.type === "track" 
-                  ? "เพิ่มลงคิวดาวน์โหลด (MP3)" 
-                  : "เพิ่มลงคิวดาวน์โหลดทั้งอัลบั้ม (ZIP)"
+                  ? `เพิ่มลงคิวดาวน์โหลด (${audioFormat.toUpperCase()})` 
+                  : `เพิ่มลงคิวดาวน์โหลดทั้งอัลบั้ม (${audioFormat.toUpperCase()} ZIP)`
                 }
               </button>
             </div>
@@ -411,7 +563,37 @@ export default function Home() {
                 <ListMusic size={22} />
                 คิวดาวน์โหลด
               </h2>
-              <span className="queue-badge">{queue.length} รายการ</span>
+              <div style={{ display: "flex", gap: "0.6rem", alignItems: "center" }}>
+                <span className="queue-badge">{queue.length} รายการ</span>
+                {queue.some(item => item.status === "completed" || item.status === "failed") && (
+                  <button 
+                    type="button" 
+                    className="btn btn-queue-clear"
+                    onClick={handleClearQueue}
+                    style={{
+                      padding: "0.35rem 0.75rem",
+                      fontSize: "0.8rem",
+                      fontWeight: "700",
+                      borderRadius: "0.5rem",
+                      background: "rgba(239, 68, 68, 0.15)",
+                      color: "#f87171",
+                      border: "1px solid rgba(239, 68, 68, 0.3)",
+                      cursor: "pointer",
+                      transition: "all 0.2s"
+                    }}
+                    onMouseOver={(e) => {
+                      e.target.style.background = "rgba(239, 68, 68, 0.25)";
+                      e.target.style.color = "#ef4444";
+                    }}
+                    onMouseOut={(e) => {
+                      e.target.style.background = "rgba(239, 68, 68, 0.15)";
+                      e.target.style.color = "#f87171";
+                    }}
+                  >
+                    ล้างคิวที่เสร็จแล้ว
+                  </button>
+                )}
+              </div>
             </div>
             
             <div className="queue-list">
@@ -442,7 +624,7 @@ export default function Home() {
                           {item.status === "failed" && "ล้มเหลว"}
                         </span>
                         <span>•</span>
-                        <span>{item.type === "spotify" ? "Spotify MP3" : item.format === "audio" ? "YouTube MP3" : "YouTube MP4"}</span>
+                        <span>{item.type === "spotify" ? `Spotify ${item.downloadedFormat || "Audio"}` : item.format === "audio" ? `YouTube ${item.downloadedFormat || "Audio"}` : "YouTube MP4"}</span>
                       </div>
                     </div>
                   </div>

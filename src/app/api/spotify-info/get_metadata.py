@@ -10,7 +10,9 @@ def main():
 
     url = sys.argv[1]
     try:
-        SpotifyClient.init(client_id=None, client_secret=None, user_auth=False)
+        client_id = os.environ.get("SPOTIFY_CLIENT_ID")
+        client_secret = os.environ.get("SPOTIFY_CLIENT_SECRET")
+        SpotifyClient.init(client_id=client_id, client_secret=client_secret, user_auth=False)
         client = SpotifyClient()
         
         if "playlist" in url:
